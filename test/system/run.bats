@@ -74,7 +74,6 @@ teardown() {
 }
 
 @test "run: Run a command by a relative path" {
-  skip 'not implemented yet'
   tmpdir="$(mktemp --directory)"
   cd "$tmpdir"
   cat << 'EOF' > ./hello.sh
