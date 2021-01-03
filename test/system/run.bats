@@ -59,3 +59,34 @@ teardown() {
   assert_success
   assert_output --partial "uid=0(root)"
 }
+
+@test "run: Try to run echo 'Hello World' while the current working directory has no counterpart inside the container (it should fail)" {
+  tmpdir="$(mktemp --directory)"
+  cd "$tmpdir"
+  create_container test-container
+  start_container test-container
+  podman exec test-container umount /tmp  # TODO: is this too destructive?
+
+  run toolbox run --container test-container echo 'Hello World'
+
+  assert_failure
+  assert_line "Error: directory $tmpdir not found in container test-container"
+}
+
+@test "run: Run a command by a relative path" {
+  skip 'not implemented yet'
+  tmpdir="$(mktemp --directory)"
+  cd "$tmpdir"
+  cat << 'EOF' > ./hello.sh
+  #!/usr/bin/env bash
+
+  echo "Hello World"
+EOF
+  chmod +x ./hello.sh
+  create_default_container
+
+  run toolbox run ./hello.sh
+
+  assert_success
+  assert_output --partial "Hello World"
+}
