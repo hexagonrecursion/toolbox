@@ -76,11 +76,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var nonDefaultContainer bool
-
 	if runFlags.container != "" {
-		nonDefaultContainer = true
-
 		if _, err := utils.IsContainerNameValid(runFlags.container); err != nil {
 			var builder strings.Builder
 			fmt.Fprintf(&builder, "invalid argument for '--container'\n")
@@ -94,8 +90,6 @@ func run(cmd *cobra.Command, args []string) error {
 
 	var release string
 	if runFlags.release != "" {
-		nonDefaultContainer = true
-
 		var err error
 		release, err = utils.ParseRelease(runFlags.release)
 		if err != nil {
@@ -115,98 +109,24 @@ func run(cmd *cobra.Command, args []string) error {
 
 	command := args
 
-	container, image, release, err := utils.ResolveContainerAndImageNames(runFlags.container, "", release)
+	container, _, _, err := utils.ResolveContainerAndImageNames(runFlags.container, "", release)
 	if err != nil {
 		return err
 	}
 
-	if err := runCommand(container,
-		!nonDefaultContainer,
-		image,
-		release,
-		command,
-		false,
-		false,
-		true); err != nil {
+	if err := runCommand(container,	command); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func runCommand(container string,
-	defaultContainer bool,
-	image, release string,
-	command []string,
-	emitEscapeSequence, fallbackToBash, pedantic bool) error {
-	if !pedantic {
-		if image == "" {
-			panic("image not specified")
-		}
-
-		if release == "" {
-			panic("release not specified")
-		}
-	}
-
+func runCommand(container string, command []string) error {
 	logrus.Debugf("Checking if container %s exists", container)
-
 	if _, err := podman.ContainerExists(container); err != nil {
 		logrus.Debugf("Container %s not found", container)
-
-		if pedantic {
-			err := utils.CreateErrorContainerNotFound(container, executableBase)
-			return err
-		}
-
-		containers, err := listContainers()
-		if err != nil {
-			err := utils.CreateErrorContainerNotFound(container, executableBase)
-			return err
-		}
-
-		containersCount := len(containers)
-		logrus.Debugf("Found %d containers", containersCount)
-
-		if containersCount == 0 {
-			var shouldCreateContainer bool
-			promptForCreate := true
-
-			if rootFlags.assumeYes {
-				shouldCreateContainer = true
-				promptForCreate = false
-			}
-
-			if promptForCreate {
-				prompt := "No toolbox containers found. Create now? [y/N]"
-				shouldCreateContainer = utils.AskForConfirmation(prompt)
-			}
-
-			if !shouldCreateContainer {
-				fmt.Printf("A container can be created later with the 'create' command.\n")
-				fmt.Printf("Run '%s --help' for usage.\n", executableBase)
-				return nil
-			}
-
-			if err := createContainer(container, image, release, false); err != nil {
-				return err
-			}
-		} else if containersCount == 1 && defaultContainer {
-			fmt.Fprintf(os.Stderr, "Error: container %s not found\n", container)
-
-			container = containers[0].Names[0]
-			fmt.Fprintf(os.Stderr, "Entering container %s instead.\n", container)
-			fmt.Fprintf(os.Stderr, "Use the 'create' command to create a different toolbox.\n")
-			fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", executableBase)
-		} else {
-			var builder strings.Builder
-			fmt.Fprintf(&builder, "container %s not found\n", container)
-			fmt.Fprintf(&builder, "Use the '--container' option to select a toolbox.\n")
-			fmt.Fprintf(&builder, "Run '%s --help' for usage.", executableBase)
-
-			errMsg := builder.String()
-			return errors.New(errMsg)
-		}
+		err := utils.CreateErrorContainerNotFound(container, executableBase)
+		return err
 	}
 
 	if err := callFlatpakSessionHelper(container); err != nil {
@@ -258,20 +178,6 @@ func runCommand(container string,
 
 	logrus.Debugf("Container %s is initialized", container)
 
-	if _, err := isCommandPresent(container, command[0]); err != nil {
-		if fallbackToBash {
-			fmt.Fprintf(os.Stderr,
-				"Error: command %s not found in container %s\n",
-				command[0],
-				container)
-			fmt.Fprintf(os.Stderr, "Using /bin/bash instead.\n")
-
-			command = []string{"/bin/bash", "-l"}
-		} else {
-			return fmt.Errorf("command %s not found in container %s", command[0], container)
-		}
-	}
-
 	logrus.Debug("Checking if 'podman exec' supports disabling the detach keys")
 
 	var detachKeys []string
@@ -307,10 +213,6 @@ func runCommand(container string,
 
 	execArgs = append(execArgs, command...)
 
-	if emitEscapeSequence {
-		fmt.Printf("\033]777;container;push;%s;toolbox;%s\033\\", container, currentUser.Uid)
-	}
-
 	logrus.Debugf("Running in container %s:", container)
 	logrus.Debug("podman")
 	for _, arg := range execArgs {
@@ -318,10 +220,6 @@ func runCommand(container string,
 	}
 
 	exitCode, err := shell.RunWithExitCode("podman", os.Stdin, os.Stdout, nil, execArgs...)
-
-	if emitEscapeSequence {
-		fmt.Printf("\033]777;container;pop;;;%s\033\\", currentUser.Uid)
-	}
 
 	switch exitCode {
 	case 0:
