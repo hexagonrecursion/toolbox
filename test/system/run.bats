@@ -89,3 +89,10 @@ EOF
   assert_success
   assert_output --partial "Hello World"
 }
+
+@test "run: Try to run echo 'Hello World' in a container that does not exist" {
+  run toolbox run -c missing-container echo 'Hello World'
+
+  assert_failure
+  assert_line 'Error: container missing-container not found'
+}
